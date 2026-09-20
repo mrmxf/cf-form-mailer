@@ -1,0 +1,33 @@
+{
+  "name": "@mrmxf/cf-form-mailer",
+  "version": "1.0.0",
+  "description": "Cloudflare Worker engine for website contact forms: renders the page, validates, blocks spam, emails the result via Mailtrap",
+  "license": "BSD-3-Clause",
+  "author": "Mr MXF <info@mrmxf.com>",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js"
+  },
+  "files": [
+    "index.js",
+    "src/*.js",
+    "!src/*.test.js"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mrmxf/cf-form-mailer.git"
+  },
+  "scripts": {
+    "test": "node --test \"src/*.test.js\""
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "keywords": [
+    "cloudflare-workers",
+    "contact-form",
+    "turnstile",
+    "mailtrap"
+  ]
+}

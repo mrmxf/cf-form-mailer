@@ -1,0 +1,26 @@
+#  Copyright ©2017-2026  Mr MXF   info@mrmxf.com
+#  BSD-3-Clause License           https://opensource.org/license/bsd-3-clause/
+---
+# yamllint disable rule:colons
+#        __     __                                          _   _
+#   __  / _|   / _|  ___   _ _   _ __      _ __    __ _  (_) | |  ___   _ _
+#  / _| |  _| |  _| / _ \ | '_| | '  \    | '  \  / _` | | | | | / -_) | '_|
+#  \__| |_|   |_|   \___/ |_|   |_|_|_|   |_|_|_| \__,_| |_| |_| \___| |_|
+# =============================================================================
+#  The form engine. No build, no deploy: consumers pin a git tag.
+#
+#    clog test        the test suite - the only gate
+#
+#                        ⇓⇓⇓⇓⇓⇓⇓           ⇓⇓⇓⇓
+# ALL YAML KEYS ARE ⇒⇒ lowercase ⇔ with hyphens ⇐⇐ (not underscores) only.
+#                        ⇑⇑⇑⇑⇑⇑⇑           ⇑⇑⇑⇑
+# -----------------------------------------------------------------------------
+# `kfg` is the current config key, `clog` the legacy one. Both are set so this
+# repo works with clog v0.11.x and the older v0.10.x binaries.
+kfg:
+  releases-path: "releases.yaml"
+clog:
+  releases-path: "releases.yaml"
+
+snippets:
+  test: node --test "src/*.test.js"
