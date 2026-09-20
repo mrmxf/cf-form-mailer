@@ -22,6 +22,7 @@ src/validate.js field-array-driven validation
 src/turnstile.js honeypot + Turnstile verify
 src/email.js    the body, the headers, the Mailtrap call
 src/mailer.test.js  every promise the package makes
+examples/       copy-in embed wrappers: html/ hugo/ jekyll/ + css/. Not bundled.
 releases.yaml   version history, newest first. NOT a golang project: tags have no "v"
 ```
 
@@ -72,11 +73,29 @@ releases.yaml   version history, newest first. NOT a golang project: tags have n
 - Changing a default or example colour means recomputing contrast (4.5:1 text, 3:1
   borders). Do not eyeball it.
 
-### Embed mode
+### Embed mode — the DEFAULT way to use this package
+- Recommend, and assume, the embedded shape for a Hugo or Jekyll site: the Worker routed
+  at `/forms/<name>*`, and a page of the site's own — with its navigation, header and
+  footer — embedding it in an iframe with `?embed=1`. Suggest it whenever someone is
+  wiring a form into a static site.
+- The standalone shape (the Worker routed on `/contact*`, so it IS that page) is the
+  exception. It costs the site's navigation and chrome. If a site chooses it, the reason
+  belongs in that site's own docs.
 - `?embed=1` drops `<header>`/`<footer>`, uses `copy.embedIntro` when present, and posts
   back to `?embed=1` so errors and the thank-you stay in the frame.
 - `<base target="_parent">` needs the form's `target="_self"`. Remove one and a submit
   navigates the whole host page away.
+- The frame is sized by script, which needs the Worker to be SAME-ORIGIN with the page —
+  its own domain, never `*.workers.dev`. Cross-origin it fails quietly and the CSS
+  `min-height` stands. Do not "fix" that with postMessage before asking: the quiet
+  fallback is what keeps `hugo server` and `jekyll serve` working.
+- `examples/html`, `examples/hugo` and `examples/jekyll` are three wrappers around ONE
+  script and must stay behaviourally identical. Change the embed contract — the
+  post-back URL, `base`/`target`, the CSP, the class names — and update all three plus
+  `examples/css/form-frame.css` in the same commit.
+- Routing a staging host and the live host to the SAME Worker is deliberate where a site
+  does it: a submission from staging is a live end-to-end test of the real path. Do not
+  "fix" it by splitting the Worker unless that site's docs ask for it.
 
 ### Email
 - Mailtrap HTTP API, not SMTP: Workers block port 25.

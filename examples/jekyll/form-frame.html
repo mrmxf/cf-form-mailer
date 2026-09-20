@@ -1,0 +1,78 @@
+{%- comment -%}
+  form-frame — embed a cf-form-mailer Worker in a Jekyll page.
+
+  Install: save as _includes/form-frame.html, and paste
+  examples/css/form-frame.css into your stylesheet.
+
+  Use, in a page or post:
+      {% include form-frame.html src="/forms/contact/" title="Contact form" %}
+
+  Params
+    src    required  path of the form. The frame loads it with ?embed=1, which
+                     drops the form's own header, h1 and footer; the fallback link
+                     uses the plain path, the full standalone page.
+    title  required  the iframe's accessible name
+
+  Liquid cannot fail a build the way Hugo's errorf does, so a missing param leaves
+  an HTML comment in the page and renders nothing. Check the output if the form
+  does not appear.
+
+  Height: the Worker is routed on the site's own domain, so in production the frame
+  is SAME-ORIGIN and the script below sizes it to fit. Under `jekyll serve`, or
+  anywhere the route does not exist, it is cross-origin, the script fails quietly
+  and the CSS min-height stands. The link under the frame is the way out.
+
+  The script is emitted once per page: {% assign %} inside an include is visible to
+  the rest of the page, so a second include on the same page skips it.
+{%- endcomment -%}
+
+{%- if include.src == nil or include.src == "" -%}
+  <!-- form-frame: `src` is required, e.g. {% raw %}{% include form-frame.html src="/forms/contact/" title="Contact form" %}{% endraw %} -->
+{%- elsif include.title == nil or include.title == "" -%}
+  <!-- form-frame: `title` is required for an accessible iframe -->
+{%- elsif include.src contains "?" -%}
+  <!-- form-frame: `src` must be a plain path, it gets ?embed=1 appended -->
+{%- else -%}
+<div class="form-frame-wrap">
+  <iframe class="form-frame" src="{{ include.src }}?embed=1" title="{{ include.title }}"></iframe>
+  <p class="form-frame-alt">Form not showing? <a href="{{ include.src }}">Open the form on its own page</a>.</p>
+</div>
+{%- unless form_frame_js -%}
+{%- assign form_frame_js = true -%}
+<script>
+(function () {
+  "use strict";
+  document.querySelectorAll("iframe.form-frame").forEach(function (frame) {
+    var loads = 0;
+    var observer = null;
+
+    function fit() {
+      try {
+        var doc = frame.contentDocument;
+        if (!doc || !doc.documentElement) return;
+        frame.style.height = doc.documentElement.scrollHeight + "px";
+      } catch (e) { /* cross-origin: leave the CSS min-height alone */ }
+    }
+
+    function onLoad() {
+      loads += 1;
+      if (observer) observer.disconnect();
+      fit();
+      try {
+        observer = new ResizeObserver(fit);
+        observer.observe(frame.contentDocument.body);
+      } catch (e) { /* cross-origin or no ResizeObserver */ }
+      // Load 1 is the empty form. Anything after is a POST result: bring it into view.
+      if (loads > 1) frame.scrollIntoView({ block: "start" });
+    }
+
+    frame.addEventListener("load", onLoad);
+    // A cached frame can finish loading before this script runs.
+    try {
+      if (frame.contentDocument && frame.contentDocument.readyState === "complete") onLoad();
+    } catch (e) {}
+  });
+})();
+</script>
+{%- endunless -%}
+{%- endif -%}

@@ -4,4 +4,6 @@
 # flow:"stage",  build:"dev"  = auto-add to staging server
 # flow:"main",   build:"prod" = to flag as a production release
 # this is NOT a golang project, so tags have NO leading "v"
+
+- {version: "1.1.0", date: 2026-09-20, flow: main, build: prod, note: embedding is the documented default - copy-in iframe wrappers for plain HTML, Hugo and Jekyll in examples/}
 - {version: "1.0.0", date: 2026-09-20, flow: main, build: prod, note: extracted from the bonfire and mrmxf.com cf_tools forms; site.js supplies name, URL, fonts and colour tokens}

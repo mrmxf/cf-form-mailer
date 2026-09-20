@@ -1,0 +1,78 @@
+{{- /*
+  form-frame — embed a cf-form-mailer Worker in a Hugo page.
+
+  Install: save as layouts/_shortcodes/form-frame.html, and paste
+  examples/css/form-frame.css into your stylesheet.
+
+  Use:
+      {{< form-frame src="/forms/contact/" title="Contact form" >}}
+
+  Params
+    src    required  path of the form. The frame loads it with ?embed=1, which
+                     drops the form's own header, h1 and footer; the fallback link
+                     uses the plain path, the full standalone page.
+    title  required  the iframe's accessible name, announced when a screen reader
+                     enters the frame
+
+  Height: the Worker is routed on the site's own domain, so in production the frame
+  is SAME-ORIGIN and the script below sizes it to fit — no scrollbar inside the
+  page. It re-fits on every load, so a validation error or the thank-you page after
+  a POST fits too, and on those later loads it scrolls the frame into view. Anywhere
+  the route does not exist — a preview host, `hugo server` — the frame is
+  cross-origin or a 404, reading it throws, and the CSS min-height stands. The link
+  under the frame is the way out in that case.
+*/ -}}
+{{- $src   := .Get "src"   | default "" -}}
+{{- $title := .Get "title" | default "" -}}
+{{- $page  := .Page -}}
+{{- if not $src -}}
+  {{- errorf "form-frame: `src` is required (called from %s)" $page.File.Path -}}
+{{- end -}}
+{{- if in $src "?" -}}
+  {{- errorf "form-frame: `src` must be a plain path, it gets ?embed=1 appended (called from %s)" $page.File.Path -}}
+{{- end -}}
+{{- if not $title -}}
+  {{- errorf "form-frame: `title` is required for an accessible iframe (called from %s)" $page.File.Path -}}
+{{- end -}}
+<div class="form-frame-wrap">
+  <iframe class="form-frame" src="{{ $src }}?embed=1" title="{{ $title }}"></iframe>
+  <p class="form-frame-alt">Form not showing? <a href="{{ $src }}">Open the form on its own page</a>.</p>
+</div>
+{{- if not ($page.Store.Get "hasFormFrameJS") -}}
+{{- $page.Store.Set "hasFormFrameJS" true }}
+<script>
+(function () {
+  "use strict";
+  document.querySelectorAll("iframe.form-frame").forEach(function (frame) {
+    var loads = 0;
+    var observer = null;
+
+    function fit() {
+      try {
+        var doc = frame.contentDocument;
+        if (!doc || !doc.documentElement) return;
+        frame.style.height = doc.documentElement.scrollHeight + "px";
+      } catch (e) { /* cross-origin: leave the CSS min-height alone */ }
+    }
+
+    function onLoad() {
+      loads += 1;
+      if (observer) observer.disconnect();
+      fit();
+      try {
+        observer = new ResizeObserver(fit);
+        observer.observe(frame.contentDocument.body);
+      } catch (e) { /* cross-origin or no ResizeObserver */ }
+      // Load 1 is the empty form. Anything after is a POST result: bring it into view.
+      if (loads > 1) frame.scrollIntoView({ block: "start" });
+    }
+
+    frame.addEventListener("load", onLoad);
+    // A cached frame can finish loading before this script runs.
+    try {
+      if (frame.contentDocument && frame.contentDocument.readyState === "complete") onLoad();
+    } catch (e) {}
+  });
+})();
+</script>
+{{- end -}}

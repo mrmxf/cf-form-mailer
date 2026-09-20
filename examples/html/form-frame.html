@@ -1,0 +1,46 @@
+<!-- cf-form-mailer — embed a form in any HTML page.
+     Edit the two paths in the <iframe> and the fallback link. The form must be
+     same-origin with this page for the sizing script to work: route the Worker on
+     your own domain. Needs form-frame.css. -->
+<div class="form-frame-wrap">
+  <iframe class="form-frame" src="/forms/contact/?embed=1" title="Contact form"></iframe>
+  <p class="form-frame-alt">Form not showing? <a href="/forms/contact/">Open the form on its own page</a>.</p>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  document.querySelectorAll("iframe.form-frame").forEach(function (frame) {
+    var loads = 0;
+    var observer = null;
+
+    function fit() {
+      try {
+        var doc = frame.contentDocument;
+        if (!doc || !doc.documentElement) return;
+        frame.style.height = doc.documentElement.scrollHeight + "px";
+      } catch (e) { /* cross-origin: leave the CSS min-height alone */ }
+    }
+
+    function onLoad() {
+      loads += 1;
+      if (observer) observer.disconnect();
+      fit();
+      try {
+        observer = new ResizeObserver(fit);
+        observer.observe(frame.contentDocument.body);
+      } catch (e) { /* cross-origin or no ResizeObserver */ }
+      // Load 1 is the empty form. Anything after is a POST result — an error or
+      // the thank-you page — so bring it into view instead of leaving it above
+      // the viewport.
+      if (loads > 1) frame.scrollIntoView({ block: "start" });
+    }
+
+    frame.addEventListener("load", onLoad);
+    // A cached frame can finish loading before this script runs.
+    try {
+      if (frame.contentDocument && frame.contentDocument.readyState === "complete") onLoad();
+    } catch (e) {}
+  });
+})();
+</script>

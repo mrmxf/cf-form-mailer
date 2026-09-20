@@ -50,7 +50,7 @@ Used by [mrmxf.com](https://mrmxf.com) and
 ## Install
 
 ```bash
-npm install "github:mrmxf/cf-form-mailer#1.0.0"
+npm install "github:mrmxf/cf-form-mailer#1.1.0"
 ```
 
 Pin the tag. Tags carry no leading `v`. wrangler bundles the package, so there is
@@ -154,12 +154,21 @@ export const COPY = {
 Route the Worker on your own domain, so the form is same-origin with the site and needs
 no CORS. Worker routes match before Pages or any other origin.
 
+Route it at `/forms/<name>*`, NOT at the page people visit. The recommended shape is a
+page of your own — with your navigation, your header and your footer — that embeds the
+form: see [Embed it in your site](#embed-it-in-your-site). Putting the Worker on
+`/contact*` works, but then the Worker IS that page, and it has only its own plain
+header and footer.
+
 ```jsonc
 {
   "name": "example-form-contact",
   "main": "src/index.js",
   "compatibility_date": "2025-11-01",
-  "routes": [{ "pattern": "example.org/forms/contact*", "zone_name": "example.org" }],
+  "routes": [
+    { "pattern": "example.org/forms/contact*", "zone_name": "example.org" },
+    { "pattern": "staging.example.org/forms/contact*", "zone_name": "example.org" }
+  ],
   "vars": {
     "TURNSTILE_SITE_KEY": "1x00000000000000000000AA",  // the test key; the real one is set at deploy
     "DRY_RUN": "false"
@@ -215,6 +224,60 @@ Send yourself a real message and confirm the reply address works.
 
 Ship the real `TURNSTILE_SITE_KEY`. Deployed with the test key, the spam check passes
 every bot.
+
+## Embed it in your site
+
+**This is the recommended way to use the form.** The visitor stays on your page, with
+your navigation and footer; the Worker supplies only the form itself. `?embed=1` renders
+it without its own header, h1 and footer.
+
+Copy the file for your generator from [`examples/`](examples/), plus
+[`examples/css/form-frame.css`](examples/css/form-frame.css). Each one is an iframe, a
+script that sizes it to its contents, and a visible link to the form's own page for when
+the frame cannot load.
+
+**Any HTML page** — [`examples/html/form-frame.html`](examples/html/form-frame.html):
+
+```html
+<div class="form-frame-wrap">
+  <iframe class="form-frame" src="/forms/contact/?embed=1" title="Contact form"></iframe>
+  <p class="form-frame-alt">Form not showing? <a href="/forms/contact/">Open the form on its own page</a>.</p>
+</div>
+<script>/* the sizing script — see the example file */</script>
+```
+
+**Hugo** — save [`examples/hugo/form-frame.html`](examples/hugo/form-frame.html) as
+`layouts/_shortcodes/form-frame.html`, then in any page:
+
+```go-html-template
+{{< form-frame src="/forms/contact/" title="Contact form" >}}
+```
+
+It emits the script once per page, and `errorf`s on a missing `src` or `title`, so a
+mistake fails the build rather than shipping an unlabelled frame.
+
+**Jekyll** — save [`examples/jekyll/form-frame.html`](examples/jekyll/form-frame.html)
+as `_includes/form-frame.html`, then in any page or post:
+
+```liquid
+{% include form-frame.html src="/forms/contact/" title="Contact form" %}
+```
+
+Liquid cannot fail a build, so a missing parameter leaves an HTML comment and renders
+nothing — check the output if the form does not appear.
+
+### What makes the sizing work
+
+- The Worker must be **same-origin** with the page: routed on your own domain, not
+  `*.workers.dev`. Cross-origin, the script cannot read the frame, fails quietly, and the
+  CSS `min-height` stands — which is also what happens under `hugo server` and
+  `jekyll serve`, where the route does not exist.
+- The page sets `<base target="_parent">` in embed mode, so links inside the form open in
+  your page, while the form itself carries `target="_self"` so a submit stays in the
+  frame. Both are handled here; do not override them.
+- The form posts back to `?embed=1`, so validation errors and the thank-you page stay
+  embedded, and the script scrolls the result into view.
+- `frame-ancestors 'self'` means only your own site can frame the form.
 
 ## Routes
 
