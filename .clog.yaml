@@ -10,6 +10,7 @@
 #  The form engine. No build, no deploy: consumers pin a git tag.
 #
 #    clog test        the test suite - the only gate
+#    clog sqlc        regenerate db/gen after editing db/query.sql or a migration
 #
 #                        ⇓⇓⇓⇓⇓⇓⇓           ⇓⇓⇓⇓
 # ALL YAML KEYS ARE ⇒⇒ lowercase ⇔ with hyphens ⇐⇐ (not underscores) only.
@@ -24,3 +25,20 @@ clog:
 
 snippets:
   test: node --test "src/*.test.js"
+
+  # Regenerate db/gen from db/query.sql + db/migrations (sqlc.yaml), then strip
+  # the types into db/gen/querier.js - the file the engine imports. All output is
+  # committed; only people changing SQL need sqlc installed.
+  sqlc: |
+    eval "$(clog Crayon)"
+    Q=db/query.sql
+    # sqlc-gen-ts-d1 slices query text by BYTE offset: a single multi-byte
+    # character (even a copyright sign in a comment) clips the end off every
+    # later query.
+    if [ "$(LC_ALL=C tr -d '\000-\177' < "$Q" | wc -c | tr -d ' ')" != 0 ]; then
+      clog Log -E "$Q has non-ASCII characters - the generated queries would be clipped"
+      exit 1
+    fi
+    sqlc generate || { clog Log -E "sqlc generate failed"; exit 1; }
+    NODE_NO_WARNINGS=1 node db/strip-gen.mjs || { clog Log -E "type stripping failed"; exit 1; }
+    clog Log -I "regenerated db/gen - run clog test"

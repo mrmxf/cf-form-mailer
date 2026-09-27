@@ -12,6 +12,14 @@
  */
 export const HONEYPOT_FIELD = "address2";
 
+/**
+ * A hidden field carrying the time the page was rendered, so the submission log
+ * can record how long the visitor took (session.elapsedMs in store.js). People
+ * take tens of seconds; a script takes milliseconds. The client can change it,
+ * so it is recorded as a signal and never used to refuse a submission.
+ */
+export const RENDERED_FIELD = "_rendered";
+
 const VERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
 
 /**
@@ -32,7 +40,8 @@ export function trippedHoneypot(data) {
  * @param {string} token   The cf-turnstile-response value from the form.
  * @param {string} secret  TURNSTILE_SECRET_KEY.
  * @param {string} [ip]    CF-Connecting-IP, if available.
- * @returns {Promise<{ok: boolean, reason?: string}>}
+ * @returns {Promise<{ok: boolean, reason?: string, result?: object}>}
+ *          `result` is Cloudflare's siteverify answer, kept for the submission log.
  */
 export async function verifyTurnstile(token, secret, ip) {
   if (!secret) {
@@ -55,6 +64,6 @@ export async function verifyTurnstile(token, secret, ip) {
     return { ok: false, reason: `verify-request-failed: ${err.message}` };
   }
 
-  if (result.success) return { ok: true };
-  return { ok: false, reason: (result["error-codes"] || []).join(", ") || "rejected" };
+  if (result.success) return { ok: true, result };
+  return { ok: false, reason: (result["error-codes"] || []).join(", ") || "rejected", result };
 }

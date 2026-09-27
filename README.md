@@ -40,6 +40,8 @@ Used by [mrmxf.com](https://mrmxf.com) and
 | Email | Sent through [Mailtrap's][mailtrap] HTTP API, with `Reply-To` set to the sender so you just hit reply. |
 | An embed mode | `?embed=1` renders without header or footer, for an iframe in your site's own page. |
 | A health page | `/health` reports what is configured, so a bad deploy is obvious. |
+| A submission log | Optional: bind a D1 database and every POST leaves one row, whatever happened to it. |
+| A reader API | `/api/v1/*` lets staff pages list and count submissions, behind Cloudflare Access. |
 
 ## Requirements
 
@@ -50,7 +52,7 @@ Used by [mrmxf.com](https://mrmxf.com) and
 ## Install
 
 ```bash
-npm install "github:mrmxf/cf-form-mailer#1.1.0"
+npm install "github:mrmxf/cf-form-mailer#1.2.0"
 ```
 
 Pin the tag. Tags carry no leading `v`. wrangler bundles the package, so there is
@@ -188,6 +190,9 @@ header and footer.
 | `MAILTRAP_API_TOKEN` | **secret** | `wrangler secret put` |
 | `DRY_RUN` | var | `"true"` prints the email instead of sending it |
 | `SITE_NAME` | var | optional, overrides `site.name` |
+| `FORM_DB` | D1 binding | optional: turns on the [submission log](#submission-log-d1) |
+| `ACCESS_TEAM_DOMAIN` | var | the [reader API](#reader-api)'s Access team, e.g. `https://myteam.cloudflareaccess.com` |
+| `ACCESS_AUD` | var | the Access application's AUD tag. Not a secret: it identifies the app, it cannot mint a token |
 
 ## Run it locally
 
@@ -279,13 +284,88 @@ nothing — check the output if the form does not appear.
   embedded, and the script scrolls the result into view.
 - `frame-ancestors 'self'` means only your own site can frame the form.
 
+## Submission log (D1)
+
+Bind a D1 database as `FORM_DB` and every POST writes one row — sent, failed, invalid,
+rejected by Turnstile or caught by the honeypot. Without the binding nothing changes.
+
+**One database per site**, shared by all its forms: each row carries its form's `id`, and
+each form's Worker only ever reads its own. The schema ships inside this package, so
+point `migrations_dir` at it and a version bump brings its migrations with it:
+
+```jsonc
+"d1_databases": [{
+  "binding": "FORM_DB",
+  "database_name": "example-forms",           // npx wrangler d1 create example-forms
+  "database_id": "<from wrangler d1 create>",
+  "migrations_dir": "../node_modules/@mrmxf/cf-form-mailer/db/migrations"
+}]
+```
+
+```bash
+npx wrangler d1 migrations apply FORM_DB --local    # before wrangler dev
+npx wrangler d1 migrations apply FORM_DB --remote   # before every deploy
+```
+
+Two optional keys on the form definition:
+
+| key | |
+|---|---|
+| `version` | a string of your own, recorded with each row, e.g. `"2"` after you change the questions |
+| `retainDays` | delete this form's rows older than this many days, on each insert. Default: keep everything |
+
+What a row holds:
+
+| | |
+|---|---|
+| `url`, `timestamp` | where it was posted, and when (ISO 8601, UTC) |
+| `outcome` | `sent`, `send-failed`, `invalid`, `turnstile` or `honeypot` |
+| form metadata | the form's `id` and `version`, the engine version, and the field list |
+| answers | the submitted values — **only for `sent` and `send-failed`** |
+| session | user agent, language, referrer, embed, country, ASN, colo, the Turnstile verdict, and how long after the page rendered it was submitted |
+| workflow | `{"events":[{"event":"submit","timestamp":…,"status":200,"statusMessage":""}]}` |
+
+**No IP address is stored, anywhere.** The email still shows it; the database does not.
+
+**The log never changes what the visitor sees.** It is written after the outcome is
+known; if D1 fails, the error is logged and the visitor still gets the page they would
+have got. By then the email has gone, and an error would only make them send it again.
+
+## Reader API
+
+For staff pages. Every response is JSON, `cache-control: no-store`, and GET only.
+
+| | |
+|---|---|
+| `GET /api/v1/submissions` | `{items, next}`, newest first. `limit` (1–100, default 10), `order` (`newest`/`oldest`), `from` (ISO date or date-time: at or before it for newest, at or after for oldest), `outcome` (default `sent`; `all` or any outcome), `cursor` (the previous page's `next`) |
+| `GET /api/v1/submissions/<id>` | one record |
+| `GET /api/v1/summary` | `{form, total, first, latest, byOutcome}` — counts and the first and latest timestamps |
+
+A record is `{id, form, url, timestamp, schemaVersion, outcome, formMeta, answers,
+session, workflow}`. The API never exposes the table: it is versioned (`/v1`) separately
+from the row layout, and old rows are translated as the layout changes.
+
+**It is protected by Cloudflare Access, twice.** Put an Access application in front of
+`/forms/*/api/*` *and* in front of the pages that call it — a page outside Access gets a
+cross-origin login redirect instead of data. The Worker then checks the Access JWT
+itself (signature, issuer, `ACCESS_AUD`, expiry), so a gap in the Access policy fails
+closed instead of publishing every submission:
+
+- no `FORM_DB` → `503 store-not-configured`
+- no `ACCESS_TEAM_DOMAIN` or `ACCESS_AUD` → `503 reader-not-configured`
+- no valid token → `403 forbidden`
+
+Under `wrangler dev` there is no Access, so the check is skipped when — and only when —
+`DRY_RUN` is `"true"` **and** the host is `localhost`.
+
 ## Routes
 
 | | |
 |---|---|
 | `GET /` | the form |
 | `POST /` | honeypot → Turnstile → validate → email → thank you |
-| `GET /health` | JSON: `dryRun`, `mailtrapConfigured`, `senderConfigured`, `recipientConfigured`, `turnstileConfigured` |
+| `GET /health` | JSON: `dryRun`, `mailtrapConfigured`, `senderConfigured`, `recipientConfigured`, `turnstileConfigured`, `storeConfigured`, `readerConfigured` |
+| `GET /api/v1/*` | the [reader API](#reader-api) |
 | `?embed=1` | on either verb: no header or footer, for an iframe |
 
 Embedding: the iframe needs `<base target="_parent">` handling, which the page does for
@@ -303,6 +383,17 @@ These are deliberate. Please read before changing them.
 - **An unconfigured or `TODO` recipient refuses to send** rather than mailing nowhere.
 - **A broken form definition throws when the Worker starts**, so `wrangler deploy` fails
   instead of a visitor finding out.
+- **A failed D1 write never changes the response.** The email has already gone.
+- **The reader API refuses** without D1, without Access configuration, or without a
+  valid Access token.
+
+## Changing the SQL
+
+`db/migrations/` is both the D1 migrations and the [sqlc][sqlc] schema; `db/query.sql`
+is every query. `clog sqlc` regenerates `db/gen/` with the `sqlc-gen-ts-d1` plugin, then
+strips the types into `db/gen/querier.js`, which is what the engine imports — it stays
+plain JS with no build step. All of it is committed, so only people changing SQL need
+sqlc.
 
 ## Upgrading
 
@@ -318,3 +409,4 @@ Breaking changes get a major version and a note in `releases.yaml`.
 [testkeys]: https://developers.cloudflare.com/turnstile/troubleshooting/testing/
 [mailtrap]: https://mailtrap.io/
 [wrangler]: https://developers.cloudflare.com/workers/wrangler/
+[sqlc]: https://sqlc.dev/

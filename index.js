@@ -13,4 +13,7 @@ export { createHandler } from "./src/handler.js";
 export { validate } from "./src/validate.js";
 export { renderForm, renderSuccess, TOKENS } from "./src/render.js";
 export { sendFormEmail, headerSafe, isConfigured } from "./src/email.js";
-export { trippedHoneypot, verifyTurnstile, HONEYPOT_FIELD } from "./src/turnstile.js";
+export { trippedHoneypot, verifyTurnstile, HONEYPOT_FIELD, RENDERED_FIELD } from "./src/turnstile.js";
+export { toRecord, buildRow, STORE_BINDING, ROW_SCHEMA, OUTCOMES } from "./src/store.js";
+export { verifyAccess, readerConfigured } from "./src/access.js";
+export { ENGINE_VERSION } from "./src/version.js";

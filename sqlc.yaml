@@ -1,0 +1,22 @@
+#  Copyright ©2017-2026  Mr MXF   info@mrmxf.com
+#  BSD-3-Clause License           https://opensource.org/license/bsd-3-clause/
+# `clog sqlc` - regenerates db/gen, then strips the types into db/gen/querier.js,
+# which is what the engine imports. Output is committed, so consumers never need
+# sqlc. The plugin is a prototype (v0.0.0-a, last change 2024-08): pinned by
+# sha256, and if it ever breaks the committed output still stands.
+version: "2"
+plugins:
+  - name: ts-d1
+    wasm:
+      url: https://github.com/orisano/sqlc-gen-ts-d1/releases/download/v0.0.0-a/sqlc-gen-ts-d1.wasm
+      sha256: dfd4bfef4736967ca17cc23d18de20920fbd196998fe7aa191a205439d63fb58
+sql:
+  - engine: sqlite
+    schema: db/migrations
+    queries: db/query.sql
+    codegen:
+      - out: db/gen
+        plugin: ts-d1
+        # no import line - D1 types are ambient, and the stripped .js must not
+        # import anything
+        options: "workers-types-v3=1"

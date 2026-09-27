@@ -21,7 +21,7 @@
  * thank-you pages stay embedded.
  */
 
-import { HONEYPOT_FIELD } from "./turnstile.js";
+import { HONEYPOT_FIELD, RENDERED_FIELD } from "./turnstile.js";
 
 /** Escape for use in HTML text and double-quoted attributes. */
 function esc(s) {
@@ -239,9 +239,13 @@ function renderField(field, values, errors) {
  * @param {Record<string,string>} [opts.values]  Sticky values on a failed submit.
  * @param {Record<string,string>} [opts.errors]  Per-field errors.
  * @param {string} [opts.formError]              Whole-form error (e.g. Turnstile).
+ * @param {string} [opts.renderedAt]  When the visitor first got the form: a
+ *        re-render after an error carries it forward so elapsed time is from the
+ *        first view. Visitor-supplied, so only a parseable date is kept.
  * @param {boolean} [opts.embed]                 Render for an iframe — see EMBED MODE above.
  */
-export function renderForm({ form, siteKey, eventName, values = {}, errors = {}, formError = "", embed = false }) {
+export function renderForm({ form, siteKey, eventName, values = {}, errors = {}, formError = "", embed = false, renderedAt = "" }) {
+  const shownAt = Number.isNaN(Date.parse(renderedAt)) ? new Date().toISOString() : new Date(Date.parse(renderedAt)).toISOString();
   const errorCount = Object.keys(errors).length;
   const intro = embed && "embedIntro" in form.copy ? form.copy.embedIntro : form.copy.intro;
   const summary = errorCount || formError
@@ -269,6 +273,7 @@ export function renderForm({ form, siteKey, eventName, values = {}, errors = {},
         <input type="text" id="${HONEYPOT_FIELD}" name="${HONEYPOT_FIELD}"
                tabindex="-1" autocomplete="off">
       </div>
+      <input type="hidden" name="${RENDERED_FIELD}" value="${esc(shownAt)}">
 
       <div class="cf-turnstile" data-sitekey="${esc(siteKey)}" data-theme="${form.site.theme.light ? "auto" : "dark"}"></div>
       <p class="error" id="turnstile-error" hidden>Please complete the check above.</p>

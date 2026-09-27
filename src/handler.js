@@ -4,12 +4,18 @@
  *   GET  /        -> the form
  *   POST /        -> honeypot -> Turnstile -> validate -> email -> thank-you
  *   GET  /health  -> a small JSON status page, handy for checking a deploy
+ *   GET  /api/v1/* -> the reader API over the submission log (reader.js)
  *
  *   ?embed=1 on GET or POST renders for an iframe on the site: no header or
  *   footer (see EMBED MODE in render.js).
  *
  * Ordering matters and is deliberate: the cheap local checks run before the
  * network call to Turnstile, so junk traffic costs us nothing.
+ *
+ * With a FORM_DB binding, every POST - whatever its outcome - also leaves one
+ * row in D1 (store.js). The row is written AFTER the outcome is known and
+ * never changes the response: by then the email has gone, and an error page
+ * would only make the visitor send it again.
  *
  * A form directory supplies only its questions and its wording; everything
  * below is identical for all of them. The site (name, URL, colours, fonts) is
@@ -19,7 +25,10 @@
 import { validate } from "./validate.js";
 import { renderForm, renderSuccess, TOKENS } from "./render.js";
 import { sendFormEmail, isConfigured } from "./email.js";
-import { trippedHoneypot, verifyTurnstile } from "./turnstile.js";
+import { trippedHoneypot, verifyTurnstile, RENDERED_FIELD } from "./turnstile.js";
+import { STORE_BINDING, buildRow, logSubmission } from "./store.js";
+import { readerConfigured } from "./access.js";
+import { API_PREFIX, handleReader } from "./reader.js";
 
 // frame-ancestors 'self': only the site itself may put these pages in an iframe
 // (the Workers are routed on the site's own domain, so that is same-origin). Any
@@ -41,12 +50,14 @@ const html = (body, status = 200) => new Response(body, { status, headers: HTML 
  * @param {string} form.replyNameField   field whose value becomes the Reply-To name
  * @param {string} form.replyEmailField  field whose value becomes the Reply-To address
  * @param {object} form.site             site.js - name, url, lang, fonts, theme
- * @returns {{fetch: (req: Request, env: object) => Promise<Response>}}
+ * @param {string} [form.version]        the form's own version, recorded in the log
+ * @param {number} [form.retainDays]     prune logged rows older than this; default keep
+ * @returns {{fetch: (req: Request, env: object, ctx?: ExecutionContext) => Promise<Response>}}
  */
 export function createHandler(form) {
   assertForm(form);
   return {
-    async fetch(request, env) {
+    async fetch(request, env, ctx) {
       const url = new URL(request.url);
       // SITE_NAME overrides site.name per Worker (wrangler var), e.g. for a test
       const eventName = env.SITE_NAME || form.site.name;
@@ -64,7 +75,14 @@ export function createHandler(form) {
           senderConfigured: isConfigured(env[form.senderVar]),
           recipientConfigured: isConfigured(env[form.recipientVar]),
           turnstileConfigured: Boolean(env.TURNSTILE_SECRET_KEY),
+          storeConfigured: Boolean(env[STORE_BINDING]),
+          readerConfigured: readerConfigured(env),
         });
+      }
+
+      const api = url.pathname.indexOf(`${API_PREFIX}/`);
+      if (api !== -1) {
+        return handleReader({ request, env, form, rest: url.pathname.slice(api + API_PREFIX.length) });
       }
 
       if (request.method === "GET" || request.method === "HEAD") {
@@ -78,19 +96,37 @@ export function createHandler(form) {
         });
       }
 
-      let data;
+      // Every exit below goes through finish(): it logs the outcome (when there
+      // is a store) and returns the response untouched.
+      const receivedAt = new Date();
+      let data = null;
+      const finish = async (response, outcome, statusMessage, extra = {}) => {
+        const db = env[STORE_BINDING];
+        if (db) {
+          const row = buildRow({ form, request, data, receivedAt, outcome,
+            status: response.status, statusMessage, ...extra });
+          const write = logSubmission(db, form, row).catch((err) =>
+            console.error(`[${form.id}] submission log failed: ${err.stack || err}`));
+          if (ctx?.waitUntil) ctx.waitUntil(write);
+          else await write;
+        }
+        return response;
+      };
+
       try {
         data = await request.formData();
       } catch {
-        return html(page({ formError: "We could not read that submission. Please try again." }), 400);
+        return finish(html(page({ formError: "We could not read that submission. Please try again." }), 400),
+          "invalid", "unreadable body");
       }
+      const renderedAt = data.get(RENDERED_FIELD) ?? "";
 
       // 1. Honeypot. A bot that fills the hidden field gets the ordinary
       //    thank-you page and nothing is sent — see turnstile.js for why we do
       //    not tell it that it was caught.
       if (trippedHoneypot(data)) {
         console.log(`[${form.id}] honeypot tripped — submission dropped`);
-        return html(success());
+        return finish(html(success()), "honeypot", "honeypot", { honeypot: true });
       }
 
       // 2. Turnstile.
@@ -102,22 +138,27 @@ export function createHandler(form) {
       if (!turnstile.ok) {
         console.log(`[${form.id}] turnstile rejected: ${turnstile.reason}`);
         const { values } = validate(data, form.fields);
-        return html(
+        return finish(html(
           page({
             values,
+            renderedAt,
             formError:
               turnstile.reason === "turnstile-not-configured"
                 ? "This form is not fully configured yet. Please contact us instead."
                 : "We could not verify that you are human. Please try the check again.",
           }),
           403
-        );
+        ), "turnstile", turnstile.reason, { turnstile });
       }
 
       // 3. Validation. Re-renders with the sender's answers intact — nobody
       //    should have to retype a long message because of one typo.
       const { ok, values, errors } = validate(data, form.fields);
-      if (!ok) return html(page({ values, errors }), 400);
+      if (!ok) {
+        // Field names only: what someone half-typed into a rejected form is not kept.
+        return finish(html(page({ values, errors, renderedAt }), 400),
+          "invalid", `invalid: ${Object.keys(errors).join(", ")}`, { turnstile });
+      }
 
       // 4. Send.
       const meta = {
@@ -126,24 +167,27 @@ export function createHandler(form) {
         country: request.cf?.country,
       };
 
+      let result;
       try {
-        const result = await sendFormEmail({ form, values, env, meta });
+        result = await sendFormEmail({ form, values, env, meta });
         console.log(`[${form.id}] ${result.dryRun ? "dry run — not sent" : "emailed"}`);
       } catch (err) {
         // Never show a success page for an email that did not go. Someone who
         // thinks their message went through waits for a reply that never comes.
         console.error(`[${form.id}] send failed: ${err.stack || err}`);
-        return html(
+        return finish(html(
           page({
             values,
+            renderedAt,
             formError:
               "Sorry — we could not send your message just now. Please try again in a few minutes, or contact us directly.",
           }),
           502
-        );
+        ), "send-failed", String(err.message || err).split("\n")[0], { values, turnstile });
       }
 
-      return html(success());
+      return finish(html(success()), "sent", result.dryRun ? "dry run - not emailed" : "",
+        { values, turnstile });
     },
   };
 }
@@ -165,6 +209,10 @@ function assertForm(form) {
     if (!has(form, k)) bad(`form.${k} is missing`);
   }
   if (typeof form.subject !== "function") bad("form.subject must be a function");
+  if (form.version !== undefined && typeof form.version !== "string") bad("form.version must be a string");
+  if (form.retainDays !== undefined && !(Number.isInteger(form.retainDays) && form.retainDays > 0)) {
+    bad("form.retainDays must be a whole number of days, 1 or more");
+  }
   if (!Array.isArray(form.fields) || form.fields.length === 0) bad("form.fields must be a non-empty array");
 
   const names = new Set();

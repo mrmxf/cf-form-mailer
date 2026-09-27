@@ -5,5 +5,6 @@
 # flow:"main",   build:"prod" = to flag as a production release
 # this is NOT a golang project, so tags have NO leading "v"
 
+- {version: "1.2.0", date: 2026-09-26, flow: main, build: prod, note: "opt-in D1 submission log (FORM_DB binding; one row per POST, any outcome, no IP) and a /api/v1 reader API behind Cloudflare Access; optional form.version and form.retainDays; no consumer edits needed"}
 - {version: "1.1.0", date: 2026-09-20, flow: main, build: prod, note: embedding is the documented default - copy-in iframe wrappers for plain HTML, Hugo and Jekyll in examples/}
 - {version: "1.0.0", date: 2026-09-20, flow: main, build: prod, note: extracted from the bonfire and mrmxf.com cf_tools forms; site.js supplies name, URL, fonts and colour tokens}

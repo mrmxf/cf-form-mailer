@@ -8,6 +8,7 @@ directory, which supplies only its questions, its wording and its `site.js`.
 
 `npm test` is the only gate. There is no build and no type-check. It must pass before
 any commit.
+After editing `db/query.sql` or a migration, run `clog sqlc` first (needs `sqlc` on PATH).
 
 Usage, options and the deploy sequence are [README.md](README.md). Do not repeat them here.
 
@@ -21,7 +22,17 @@ src/render.js   the HTML page, TOKENS, the theme CSS
 src/validate.js field-array-driven validation
 src/turnstile.js honeypot + Turnstile verify
 src/email.js    the body, the headers, the Mailtrap call
-src/mailer.test.js  every promise the package makes
+src/store.js    the submission log: builds the D1 row, toRecord(), the reads
+src/access.js   Cloudflare Access JWT verification (WebCrypto, no deps)
+src/reader.js   the /api/v1 reader routes
+src/version.js  ENGINE_VERSION - must equal package.json (tested)
+src/*.test.js   every promise the package makes
+test/           fake D1 over node:sqlite + fixtures. Tests only, never shipped
+db/migrations/  D1 migrations AND the sqlc schema. Shipped: consumers point migrations_dir here
+db/query.sql    every query. PURE ASCII
+db/gen/         sqlc output (.ts) + querier.js, the type-stripped copy the engine imports
+db/strip-gen.mjs  .ts -> .js, run by `clog sqlc`
+sqlc.yaml       sqlc-gen-ts-d1 wasm plugin, pinned by sha256
 examples/       copy-in embed wrappers: html/ hugo/ jekyll/ + css/. Not bundled.
 releases.yaml   version history, newest first. NOT a golang project: tags have no "v"
 ```
@@ -34,7 +45,9 @@ releases.yaml   version history, newest first. NOT a golang project: tags have n
 - Two sites consume this: `www-mrmxf-com/cf_tools/` and
   `www-chiddingfoldbonfire/cf_tools/`. A change here reaches every form on both.
 - No runtime dependencies, ever. `dependencies` stays absent: this runs on the Workers
-  runtime, so no Node APIs and no npm packages — `fetch`, `FormData`, `URL`, `Response`.
+  runtime, so no Node APIs and no npm packages — `fetch`, `FormData`, `URL`, `Response`,
+  `crypto.subtle`. sqlc is a dev-time generator; its committed output is plain JS with
+  no imports.
 - No framework, no build step, no separate CSS file. The page is one template literal on
   purpose; a Worker that bundles a toolchain is not worth the bytes.
 
@@ -97,6 +110,34 @@ releases.yaml   version history, newest first. NOT a golang project: tags have n
   does it: a submission from staging is a live end-to-end test of the real path. Do not
   "fix" it by splitting the Worker unless that site's docs ask for it.
 
+### Submission log (D1)
+- Opt-in by the `FORM_DB` binding. Without it the engine must behave exactly as without
+  the feature: no writes, no errors.
+- Every POST exit goes through `finish()` in `handler.js`. A new exit that skips it is
+  an unlogged outcome.
+- The log NEVER changes the response. A D1 failure is `console.error`ed, and the visitor
+  still gets the page they would have got: by then the email has gone.
+- Never store an IP address, in any column. `CF-Connecting-IP` stays in the email only.
+- `answers` is stored ONLY for `sent` and `send-failed`. `buildRow` enforces it whatever
+  it is passed.
+- `db/query.sql` must stay pure ASCII: sqlc-gen-ts-d1 slices by byte offset, and one
+  multi-byte character clips every later query.
+- Never hand-edit `db/gen/`. Run `clog sqlc`; the tests fail if `querier.js` drifts from
+  `querier.ts`.
+- Never edit an applied migration: consumers have already run it. Add `000N_*.sql`, bump
+  `ROW_SCHEMA` in `store.js`, and give `toRecord()` a branch for the new layout.
+- A new outcome goes in `OUTCOMES` and needs a test that logs it.
+
+### Reader API
+- A raw row never leaves the Worker. Everything goes through `toRecord()`; `/v1` is the
+  public contract and is versioned separately from `schema_version`.
+- Fail closed, in this order: no `FORM_DB` → 503, no Access config → 503, bad JWT → 403.
+- `verifyAccess` pins `RS256` and checks signature, `iss`, `aud`, `exp` and `nbf`. Never
+  let the token choose its algorithm, and never drop one of those checks.
+- The dev bypass needs BOTH `DRY_RUN === "true"` AND a localhost host. Never loosen it
+  to either one alone.
+- GET only. Each form's Worker reads only its own `form` rows.
+
 ### Email
 - Mailtrap HTTP API, not SMTP: Workers block port 25.
 - Cloudflare `send_email` is not an option — it only delivers to a pre-verified
@@ -107,6 +148,8 @@ releases.yaml   version history, newest first. NOT a golang project: tags have n
   failed send, theming and the guard. A change to any of those behaviours changes a test —
   if none breaks, the test was too weak.
 - No network in tests: stub `globalThis.fetch`. Addresses are `example.test`.
+- D1 in tests is `test/fake-d1.js`: real SQLite (`node:sqlite`) running the real
+  migrations, so a query D1 would reject fails here too.
 
 ### Public repo
 - No real addresses, keys, tokens or customer names in code, tests or docs.
