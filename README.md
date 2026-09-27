@@ -52,7 +52,7 @@ Used by [mrmxf.com](https://mrmxf.com) and
 ## Install
 
 ```bash
-npm install "github:mrmxf/cf-form-mailer#1.2.0"
+npm install "github:mrmxf/cf-form-mailer#1.3.0"
 ```
 
 Pin the tag. Tags carry no leading `v`. wrangler bundles the package, so there is
@@ -185,6 +185,7 @@ header and footer.
 |---|---|---|
 | `<NAME>_SENDER` | var | `From:` — a Mailtrap-verified address. The name is yours: `senderVar` |
 | `<NAME>_RECIPIENT` | var | `To:` — where messages land. `recipientVar` |
+| `ADMIN_URL_<NAME>` | var | optional: a staff admin link, added to the email as an `Admin:` line. Unset = no line. The name is yours: `adminUrlVar` |
 | `TURNSTILE_SITE_KEY` | var | public, ships in the page HTML |
 | `TURNSTILE_SECRET_KEY` | **secret** | `wrangler secret put` |
 | `MAILTRAP_API_TOKEN` | **secret** | `wrangler secret put` |

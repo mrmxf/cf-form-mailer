@@ -47,6 +47,8 @@ const html = (body, status = 200) => new Response(body, { status, headers: HTML 
  * @param {(v: Record<string,string>) => string} form.subject
  * @param {string} form.senderVar        env var holding the From: address
  * @param {string} form.recipientVar     env var holding the To: address
+ * @param {string} [form.adminUrlVar]    env var holding a staff admin URL; when set,
+ *                                       the email carries it as an "Admin:" line
  * @param {string} form.replyNameField   field whose value becomes the Reply-To name
  * @param {string} form.replyEmailField  field whose value becomes the Reply-To address
  * @param {object} form.site             site.js - name, url, lang, fonts, theme
@@ -210,6 +212,9 @@ function assertForm(form) {
   }
   if (typeof form.subject !== "function") bad("form.subject must be a function");
   if (form.version !== undefined && typeof form.version !== "string") bad("form.version must be a string");
+  if (form.adminUrlVar !== undefined && !/^[A-Z][A-Z0-9_]*$/.test(form.adminUrlVar)) {
+    bad("form.adminUrlVar must be an env var name, e.g. ADMIN_URL_CONTACT");
+  }
   if (form.retainDays !== undefined && !(Number.isInteger(form.retainDays) && form.retainDays > 0)) {
     bad("form.retainDays must be a whole number of days, 1 or more");
   }

@@ -5,4 +5,4 @@
  * syntax for any bundler to disagree about. The test suite fails if it drifts
  * from package.json.
  */
-export const ENGINE_VERSION = "1.2.0";
+export const ENGINE_VERSION = "1.3.0";

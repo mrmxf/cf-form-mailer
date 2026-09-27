@@ -124,6 +124,20 @@ test("sendFormEmail refuses a TODO recipient", async () => {
     /not configured/);
 });
 
+test("adminUrlVar: set, the email carries an Admin: line; unset or TODO, none", async (t) => {
+  const printed = [];
+  t.mock.method(console, "log", (m) => printed.push(m));
+  const send = (env) => sendFormEmail({ form: { ...FORM, adminUrlVar: "ADMIN_URL_CONTACT" },
+    values: { name: "J", email: "j@x.test", message: "m" }, env: { ...ENV, DRY_RUN: "true", ...env },
+    meta: { submittedAt: "now" } });
+  await send({ ADMIN_URL_CONTACT: "https://example.test/admin?view=contact\r\nBcc: x" });
+  await send({});
+  await send({ ADMIN_URL_CONTACT: "TODO-later" });
+  assert.match(printed[0], /\nAdmin: +https:\/\/example\.test\/admin\?view=contact Bcc: x\n/);
+  assert.doesNotMatch(printed[1], /Admin:/);
+  assert.doesNotMatch(printed[2], /Admin:/);
+});
+
 // --- the definition guard: a broken form must fail at deploy, not at a submit ---
 
 const def = (over = {}) => ({ ...FORM, ...over });
@@ -141,6 +155,7 @@ test("createHandler rejects a definition that would break a live form", () => {
   throws({ fields: [...FIELDS, FIELDS[0]] }, /two fields are called "name"/);
   throws({ fields: [{ name: "x", label: "X" }] }, /needs a type/);
   throws({ fields: [{ name: "x", label: "X", type: "radio" }] }, /radio with no options/);
+  throws({ adminUrlVar: "admin url" }, /adminUrlVar/);
 });
 
 test("createHandler rejects an incomplete site theme", () => {

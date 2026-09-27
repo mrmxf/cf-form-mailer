@@ -69,8 +69,11 @@ function addressHeader(name, addr) {
 /**
  * Build the plain-text body from the form's own field list, so a new question
  * appears in the email automatically.
+ *
+ * `adminUrl` is where staff deal with the submission (form.adminUrlVar). Empty
+ * means no line at all: a form without an admin area mails exactly as before.
  */
-function buildBody(form, values, meta) {
+function buildBody(form, values, meta, adminUrl = "") {
   const lines = form.fields.map((f) => {
     const raw = values[f.name];
     let shown = raw || "(not given)";
@@ -91,6 +94,7 @@ function buildBody(form, values, meta) {
     `Submitted: ${meta.submittedAt}`,
     `From IP:   ${meta.ip || "unknown"}`,
     `Country:   ${meta.country || "unknown"}`,
+    ...(adminUrl ? [`Admin:     ${adminUrl}`] : []),
     "",
     "Reply directly to this email to reach the sender.",
     `Sent by the ${form.id} form (cf-form-mailer).`,
@@ -114,7 +118,10 @@ export async function sendFormEmail({ form, values, env, meta }) {
   const replyAddr = headerSafe(values[form.replyEmailField]);
 
   const subject = headerSafe(form.subject(values));
-  const text = buildBody(form, values, meta);
+  // Config, not user input - but one line, so it cannot break the layout.
+  const adminUrl = form.adminUrlVar && isConfigured(env[form.adminUrlVar])
+    ? headerSafe(env[form.adminUrlVar]) : "";
+  const text = buildBody(form, values, meta, adminUrl);
 
   const payload = {
     from: { email: sender, name: `${eventName} ${form.id} form` },
